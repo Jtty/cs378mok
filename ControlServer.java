@@ -158,7 +158,13 @@ class PoleServer_handler implements Runnable {
 	if (angle < 0) {
 		action *= -1;
 	}
-	System.out.println("Calculated Action = " + action);
+	/* Apply angleDot bias calc to action */
+	/* angleDot range appears to be [-20,20] */
+	//action += angleDot;
+	action *= Math.abs(angleDot);
+	if (Math.abs(angle) < .5) {
+		action *= angle*5;
+	}
 	/*
        // if (angle > 0 && angleDiff < 0) {
        if (angle > 0) {
