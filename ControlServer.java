@@ -63,7 +63,9 @@ class PoleServer_handler implements Runnable {
     }
     double angle, angleDot, posDot, action = 0;
     double i = 0;
-    double pos = -2;
+    double pos = 0;
+    double targetPos = -2;
+
     /**
      * This method receives the pole positions and calculates the updated value
      * and sends them across to the client.
@@ -157,104 +159,8 @@ class PoleServer_handler implements Runnable {
     double calculate_action(double angle, double angleDot, double pos, double posDot) {
       
 
-      double action =  10 / (80 * .0175) * angle + angleDot + pos + posDot;
+      double action =  10 / (80 * .0175) * angle + angleDot + pos + posDot + targetPos;
 
-
-
-
-      // supposedly can be done in one line
-      // double action = 4.9101 * Math.pow(Math.abs(angleDot),1.4072);
-      // if (angleDot < 0) {
-    	// 	action *= -1;
-    	// }
-
-     //  if(Math.abs(angle) <.1){
-     //    action /= 5;
-
-     //  }
-
-
-
-      // if(Math.abs(angleDot) > 5){
-      //   action *= Math.sqrt(Math.abs(angleDot));
-
-      // }
-
-    	/* Apply angleDot bias calc to action */
-    	/* angleDot range appears to be [-20,20] */
-    	//action += angleDot;
-    	// action *= Math.abs(angleDot);
-    	
-     //  if (Math.abs(angle) < .2) {
-    	// 	action *= angle*5 + 7;
-    	// }
-
-
-
-   
-
-  // if(action > 10){
-  //   action = 10;
-  // }
-
-  // if(action < -10){
-  //   action = -10;
-  // }
-
-//0th state
-  // 0 out angle, velocity of Cart and Angular Velocity of Pendulum
-
-
-
-
-  //otherwise, do other stuff
-
-	/*
-       // if (angle > 0 && angleDiff < 0) {
-       if (angle > 0) {
-           if (angle > 65 * 0.01745) {
-               action = 10;
-           } else if (angle > 60 * 0.01745) {
-               action = 8;
-           } else if (angle > 50 * 0.01745) {
-               action = 7.5;
-           } else if (angle > 30 * 0.01745) {
-               action = 4;
-           } else if (angle > 20 * 0.01745) {
-               action = 2;
-           } else if (angle > 10 * 0.01745) {
-               action = 0.5;
-           } else if(angle >5*0.01745){
-               action = 0.2;
-           } else if(angle >2*0.01745){
-               action = 0.1;
-           } else {
-               action = 0;
-           }
-       } else if (angle < 0) {
-           if (angle < -65 * 0.01745) {
-               action = -10;
-           } else if (angle < -60 * 0.01745) {
-               action = -8;
-           } else if (angle < -50 * 0.01745) {
-               action = -7.5;
-           } else if (angle < -30 * 0.01745) {
-               action = -4;
-           } else if (angle < -20 * 0.01745) {
-               action = -2;
-           } else if (angle < -10 * 0.01745) {
-               action = -0.5;
-           } else if(angle <-5*0.01745){
-               action = -0.2;
-           } else if(angle <-2*0.01745){
-               action = -0.1;
-           } else {
-               action = 0;
-           }
-       } else {
-           action = 0.;
-       }
-	*/
        return action;
    }
 
