@@ -61,8 +61,9 @@ class PoleServer_handler implements Runnable {
         }
         t.start();
     }
-    double angle, angleDot, pos, posDot, action = 0, i = 0;
-
+    double angle, angleDot, posDot, action = 0;
+    double i = 0;
+    double pos = -2;
     /**
      * This method receives the pole positions and calculates the updated value
      * and sends them across to the client.
@@ -154,17 +155,60 @@ class PoleServer_handler implements Runnable {
     // independently. The interface needs to be changed if the control of one
     // pendulum needs sensing data from other pendulums.
     double calculate_action(double angle, double angleDot, double pos, double posDot) {
-      double action = 8.9101 * Math.pow(Math.abs(angle),1.4072);
-	if (angle < 0) {
-		action *= -1;
-	}
-	/* Apply angleDot bias calc to action */
-	/* angleDot range appears to be [-20,20] */
-	//action += angleDot;
-	action *= Math.abs(angleDot);
-	if (Math.abs(angle) < .5) {
-		action *= angle*5;
-	}
+      
+
+      double action =  10 / (80 * .0175) * angle + angleDot + pos + posDot;
+
+
+
+
+      // supposedly can be done in one line
+      // double action = 4.9101 * Math.pow(Math.abs(angleDot),1.4072);
+      // if (angleDot < 0) {
+    	// 	action *= -1;
+    	// }
+
+     //  if(Math.abs(angle) <.1){
+     //    action /= 5;
+
+     //  }
+
+
+
+      // if(Math.abs(angleDot) > 5){
+      //   action *= Math.sqrt(Math.abs(angleDot));
+
+      // }
+
+    	/* Apply angleDot bias calc to action */
+    	/* angleDot range appears to be [-20,20] */
+    	//action += angleDot;
+    	// action *= Math.abs(angleDot);
+    	
+     //  if (Math.abs(angle) < .2) {
+    	// 	action *= angle*5 + 7;
+    	// }
+
+
+
+   
+
+  // if(action > 10){
+  //   action = 10;
+  // }
+
+  // if(action < -10){
+  //   action = -10;
+  // }
+
+//0th state
+  // 0 out angle, velocity of Cart and Angular Velocity of Pendulum
+
+
+
+
+  //otherwise, do other stuff
+
 	/*
        // if (angle > 0 && angleDiff < 0) {
        if (angle > 0) {

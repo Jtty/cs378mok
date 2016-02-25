@@ -10,8 +10,8 @@ import java.io.*;
 
 public class Client extends Applet {
 
-    // TriggerType triggerType = TriggerType.TIMER_TRIGGER;
-    TriggerType triggerType = TriggerType.EVENT_TRIGGER;
+    TriggerType triggerType = TriggerType.TIMER_TRIGGER;
+    // TriggerType triggerType = TriggerType.EVENT_TRIGGER;
     // threshold for event based sensor (in degrees)
     double threshold = 5;
     // The speed of simulation
