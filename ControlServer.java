@@ -35,7 +35,7 @@ public class ControlServer {
  */
 class PoleServer_handler implements Runnable {
     // Set the number of poles
-    private static final int NUM_POLES = 1;
+    private static final int NUM_POLES = 2;
 
     static ServerSocket providerSocket;
     Socket connection = null;
@@ -64,7 +64,7 @@ class PoleServer_handler implements Runnable {
     double angle, angleDot, posDot, action = 0;
     double i = 0;
     double pos = 0;
-    double targetPos = 1;
+    double targetPos = 2;
 
     /**
      * This method receives the pole positions and calculates the updated value
@@ -101,23 +101,30 @@ class PoleServer_handler implements Runnable {
                 // the control of one pendulum needs sensing data from other
                 // pendulums.
 		double[] cart_pos = new double[NUM_POLES];
-		int[] cart_state = new int[NUM_POLES];	
-                for (int i = 0; i < NUM_POLES; i++) {
+		boolean leader_not_elected = true;
+		int leader = 0;
+		for (int i = 0; i < NUM_POLES; i++) {
                   angle = data[i*4+0];
                   angleDot = data[i*4+1];
                   pos = data[i*4+2];
                   posDot = data[i*4+3];
-		  
-		  if (Math.abs(angle) > 0.05) {
-			cart_state[i] = 0; // If not balanced	
-		  } else {
-			cart_state[i] = 1;
+		  if (leader_not_elected && NUM_POLES == 2) {
+			//Leader is cart closer to target
+			cart_pos[0] = data[1]; //Populate location of cart 0
+			cart_pos[1] = data[5]; //Populate location of cart 1
+			
+			if (targetPos < cart_pos[0]) {
+				leader = 0;
+			} else {
+				leader = 1;
+			}
+			leader_not_elected = false;
 		  }
-                  cart_pos[i] = pos;
+		  
+		  cart_pos[i] = pos;
 
-                  System.out.println("server < pole["+i+"]: "+angle+"  "
-                      +angleDot+"  "+pos+"  "+posDot);
-                  actions[i] = calculate_action(angle, angleDot, pos, posDot, i, cart_pos, cart_state);
+                  System.out.println("server < pole["+i+"]: "+angle+"  "+angleDot+"  "+pos+"  "+posDot);
+                  actions[i] = calculate_action(angle, angleDot, pos, posDot, i, cart_pos, leader);
                 }
 
                 sendMessage_doubleArray(actions);
@@ -165,49 +172,48 @@ class PoleServer_handler implements Runnable {
     // TODO: Current implementation assumes that each pole is controlled
     // independently. The interface needs to be changed if the control of one
     // pendulum needs sensing data from other pendulums.
-    double calculate_action(double angle, double angleDot, double pos, double posDot, int cart, double[] cart_pos, int[] cart_state) {
+    double calculate_action(double angle, double angleDot, double pos, double posDot, int cart, double[] cart_pos, int leader) {
       
-
+		
 	double action =  10 / (80 * .0175) * angle + angleDot + posDot;// + pos; //This balances each cart individually
-	//double dist_apart = Math.sqrt( Math.abs(Math.pow(cart_pos[0], 2) - Math.pow(cart_pos[1], 2)) );
-	//System.out.println("Distance apart: " + dist_apart);
-	double push_away = .5;
-	double dist_targ = Math.sqrt( Math.abs(Math.pow(pos,2) - Math.pow(targetPos, 2) ) );
-	if (dist_targ > .1) {
-		if (targetPos < pos) { // Target is to left
-		action += .5;
-		} else { // Target is to right
-		action -= .5;
-		}
-	} else {
-		action += dist_targ;
+	double followers_target = 0;
+	double offset_from_leader = 1;
+
+	if (NUM_POLES == 2) {
+			followers_target = Math.abs( cart_pos[leader] - cart_pos[1-leader] ) - offset_from_leader;
+			
 	}
+	double dist_targ = Math.abs(cart_pos[leader] - targetPos); // Only cart 0 gets a dist_targ
 	
-	/*	if (cart == 0) {
-			if (dist_apart < 1) {
-				if (cart_pos[1] < pos) { //If cart is to left of 0
-					action += push_away; // Go left
-				} else {
-					action -= push_away;
-				}
-			}
-			if (cart_state[cart] == 1) {
-				action -= targetPos;
-			}
+	// Leader only drives to map target
+	if (cart == leader) {
+		if (dist_targ > .1) {
+			if (targetPos < pos) { // Target is to left
+			action += .5;
+			} else { // Target is to right
+			action -= .5;
+		}
 		} else {
-			if (dist_apart < 1) {
-				//Move away from other cart
-				if (cart_pos[0] < pos) { //Leader is left of follower
-					action += push_away; //Big action away from left
-				} else{
-					action -= push_away; //Big action away from right
+			action += dist_targ;
+		} 
+	}//END OF LEADER heading to target
+	
+	if (NUM_POLES == 2) {
+		if (cart != leader) {
+			if (followers_target > .1) {  //Far from target
+				if ( (cart_pos[leader]+offset_from_leader) < pos) { // Target is left, go left
+					action += .5;
+				} else { // Target is right, go right
+					action -= .5;
 				}
-			}
-			if (cart_state[cart] == 1) {
-				action -= targetPos + .5;
+				
+			} else { //Close to target
+					action += followers_target;
+
 			}
 
-		} */
+		}
+	} 
        	return action;
    }
 
