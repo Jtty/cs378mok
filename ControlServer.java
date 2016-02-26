@@ -64,7 +64,7 @@ class PoleServer_handler implements Runnable {
     double angle, angleDot, posDot, action = 0;
     double i = 0;
     double pos = 0;
-    double targetPos = -2;
+    double targetPos = 1;
 
     /**
      * This method receives the pole positions and calculates the updated value
@@ -100,15 +100,24 @@ class PoleServer_handler implements Runnable {
                 // controlled independently. This part needs to be changed if
                 // the control of one pendulum needs sensing data from other
                 // pendulums.
+		double[] cart_pos = new double[NUM_POLES];
+		int[] cart_state = new int[NUM_POLES];	
                 for (int i = 0; i < NUM_POLES; i++) {
                   angle = data[i*4+0];
                   angleDot = data[i*4+1];
                   pos = data[i*4+2];
                   posDot = data[i*4+3];
-                  
+		  
+		  if (Math.abs(angle) > 0.05) {
+			cart_state[i] = 0; // If not balanced	
+		  } else {
+			cart_state[i] = 1;
+		  }
+                  cart_pos[i] = pos;
+
                   System.out.println("server < pole["+i+"]: "+angle+"  "
                       +angleDot+"  "+pos+"  "+posDot);
-                  actions[i] = calculate_action(angle, angleDot, pos, posDot);
+                  actions[i] = calculate_action(angle, angleDot, pos, posDot, i, cart_pos, cart_state);
                 }
 
                 sendMessage_doubleArray(actions);
@@ -156,12 +165,50 @@ class PoleServer_handler implements Runnable {
     // TODO: Current implementation assumes that each pole is controlled
     // independently. The interface needs to be changed if the control of one
     // pendulum needs sensing data from other pendulums.
-    double calculate_action(double angle, double angleDot, double pos, double posDot) {
+    double calculate_action(double angle, double angleDot, double pos, double posDot, int cart, double[] cart_pos, int[] cart_state) {
       
 
-      double action =  10 / (80 * .0175) * angle + angleDot + pos + posDot + targetPos;
+	double action =  10 / (80 * .0175) * angle + angleDot + posDot;// + pos; //This balances each cart individually
+	//double dist_apart = Math.sqrt( Math.abs(Math.pow(cart_pos[0], 2) - Math.pow(cart_pos[1], 2)) );
+	//System.out.println("Distance apart: " + dist_apart);
+	double push_away = .5;
+	double dist_targ = Math.sqrt( Math.abs(Math.pow(pos,2) - Math.pow(targetPos, 2) ) );
+	if (dist_targ > .1) {
+		if (targetPos < pos) { // Target is to left
+		action += .5;
+		} else { // Target is to right
+		action -= .5;
+		}
+	} else {
+		action += dist_targ;
+	}
+	
+	/*	if (cart == 0) {
+			if (dist_apart < 1) {
+				if (cart_pos[1] < pos) { //If cart is to left of 0
+					action += push_away; // Go left
+				} else {
+					action -= push_away;
+				}
+			}
+			if (cart_state[cart] == 1) {
+				action -= targetPos;
+			}
+		} else {
+			if (dist_apart < 1) {
+				//Move away from other cart
+				if (cart_pos[0] < pos) { //Leader is left of follower
+					action += push_away; //Big action away from left
+				} else{
+					action -= push_away; //Big action away from right
+				}
+			}
+			if (cart_state[cart] == 1) {
+				action -= targetPos + .5;
+			}
 
-       return action;
+		} */
+       	return action;
    }
 
     /**

@@ -20,8 +20,8 @@ public class Physics implements Runnable {
     public final int NUM_POLES = 1;
     // Set the initial position of the poles
     //set initial position of car
+//    public final double[] pole_init_pos = {-2.0, 0.0};
     public final double[] pole_init_pos = {-2.0};
-
     public Physics(double tau_sim, double tau_phy) {
         this.tau_sim = tau_sim;
         this.tau_phy_ms = (int) (1000 * tau_phy);

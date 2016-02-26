@@ -15,6 +15,8 @@ fi
 echo "Rebuilding all code: javac *.java. There is normally one warning"
 javac *.java -Xlint:deprecation
 
+
+
 # Restart server
 echo "Restarting Server"
 java ControlServer &
