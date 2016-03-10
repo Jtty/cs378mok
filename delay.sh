@@ -11,6 +11,6 @@ case $1 in
 		sudo tc qdisc del dev lo root netem
 		;;
 	*)
-		echo -e "Usage:\n\tadd <num>\n\tchange <num>\n\tremove\n\t*NOTE: must be a sudoer. Don't need to run script with sudo as it is included in command"
+		echo -e "Usage:\n\tadd <num+ms>\n\tchange <num+ms>\n\tremove\n\t*NOTE: must be a sudoer. Don't need to run script with sudo as it is included in command"
 		;;
 esac
