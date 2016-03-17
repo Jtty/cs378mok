@@ -69,14 +69,6 @@ class PoleServer_handler implements Runnable {
     double pos = 0;
     double targetPos = 2;
 
-
-    long clock = 0;
-    long receivedTime = 0;
-    long sentTime = 0;
-    long delay = 0;
-
-
-
     /**
      * This method receives the pole positions and calculates the updated value
      * and sends them across to the client.
@@ -87,19 +79,9 @@ class PoleServer_handler implements Runnable {
         try {
             while(true){
                 System.out.println("-----------------");
-
                 // read data from client
                 Object obj = in.readObject();
-                if(sentTime != 0 && receivedTime == 0){
-                    //System.out.println("Got here!!!!");
-                    receivedTime = System.currentTimeMillis();
-                    System.out.println("HELLO RECEIVED" + receivedTime);    
-                    System.out.println("HELLO SENT" + sentTime);
-                    assert false;
-                    delay = receivedTime - sentTime;
-                }
-
-                // Do not process string data unless it is "bye", in which case,
+               // Do not process string data unless it is "bye", in which case,
                 // we close the server
                 if(obj instanceof String){
                     System.out.println("STRING RECEIVED: "+(String) obj);
@@ -143,13 +125,10 @@ class PoleServer_handler implements Runnable {
 		  cart_pos[i] = pos;
 
                   System.out.println("server < pole["+i+"]: "+angle+"  "+angleDot+"  "+pos+"  "+posDot);
-                  actions[i] = calculate_action(angle, angleDot, pos, posDot, i, cart_pos, leader,delay,clock);
+                  actions[i] = calculate_action(angle, angleDot, pos, posDot, i, cart_pos, leader);
                 }
                 //send message out
                 sendMessage_doubleArray(actions);
-                clock++;
-                if(sentTime==0)
-                    sentTime = System.currentTimeMillis();
 
             }
         } catch (Exception ex) {
@@ -194,11 +173,8 @@ class PoleServer_handler implements Runnable {
     // TODO: Current implementation assumes that each pole is controlled
     // independently. The interface needs to be changed if the control of one
     // pendulum needs sensing data from other pendulums.
-    double calculate_action(double angle, double angleDot, double pos, double posDot, int cart, double[] cart_pos, int leader, long delay,long clock) {
-        System.out.println("THIS IS THE clock " + clock);
-        System.out.println("THIS IS THE DELAY " + delay);
-  //introducd delay somewhere;
-	double action =  10 / (80 * .0175) * angle + angleDot + posDot;// + pos; //This balances each cart individually
+    double calculate_action(double angle, double angleDot, double pos, double posDot, int cart, double[] cart_pos, int leader) {
+    double action =  10 / (80 * .0175) * angle + angleDot + posDot;
 	double followers_target = 0;
 	double offset_from_leader = 1;
 
@@ -266,6 +242,7 @@ class PoleServer_handler implements Runnable {
             for(int i=0; i< data.length; i++){
                 System.out.print(data[i] + "  ");
             }
+            System.out.print(System.nanoTime() + " "); //HACK: Fix by pushing timestamp into data[]
             System.out.println();
 
         } catch (IOException ioException) {
