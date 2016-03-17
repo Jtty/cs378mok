@@ -14,9 +14,10 @@ fi
 # Rebuild codebase
 echo "Rebuilding all code: javac *.java. There is normally one warning"
 javac *.java -Xlint:deprecation
-if [ $0 ]
+gcc_exit=$?
+if [ $gcc_exit -ne 0 ]
 then 
-    echo "There was a compilation problem. Not starting server or applet"
+    echo "There was a compilation problem. Not starting server or applet. GCC EXIT CODE: $gcc_exit"
     exit 1
 fi
 
