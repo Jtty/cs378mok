@@ -68,14 +68,21 @@ class PoleServer_handler implements Runnable {
     double i = 0;
     double pos = 0;
     double targetPos = 2;
+    double delay = 400; //network delay in ms
+    long time_unit = 0;
+    Physics physics_prog = new Physics(.01, .01/.1);
+    double[] prev_action = new double[NUM_POLES];
+    double[] cart_pos = new double[NUM_POLES];
+    double offset_from_leader = 1; //Pad distance follower <-> leader
 
     /**
      * This method receives the pole positions and calculates the updated value
      * and sends them across to the client.
-     * It also sends the amount of force to be applied to balance the pendulum.
+     /* It also sends the amount of force to be applied to balance the pendulum.
      * @throws ioException
      */
     void control_pendulum(ObjectOutputStream out, ObjectInputStream in) {
+        
         try {
             while(true){
                 System.out.println("-----------------");
@@ -92,7 +99,6 @@ class PoleServer_handler implements Runnable {
                 }
                 
                 double[] data= (double[])(obj);
-                assert(data.length == NUM_POLES * 4);
                 double[] actions = new double[NUM_POLES];
  
                 // Get sensor data of each pole and calculate the action to be
@@ -101,10 +107,13 @@ class PoleServer_handler implements Runnable {
                 // controlled independently. This part needs to be changed if
                 // the control of one pendulum needs sensing data from other
                 // pendulums.
-		double[] cart_pos = new double[NUM_POLES];
-		boolean leader_not_elected = true;
+				boolean leader_not_elected = true;
 		int leader = 0;
-		for (int i = 0; i < NUM_POLES; i++) {
+		delay = data[11]/2;
+        for (int i = 0; i < NUM_POLES; i++) {
+                  if (prev_action[i] == 0) {
+                    prev_action[i] = .75;
+                    }
                   angle = data[i*4+0];
                   angleDot = data[i*4+1];
                   pos = data[i*4+2];
@@ -123,10 +132,12 @@ class PoleServer_handler implements Runnable {
 		  }
 		  
 		  cart_pos[i] = pos;
+                System.out.println("server < pole["+i+"]: "+angle+"  "+angleDot+"  "+pos+"  "+posDot);
+                time_unit = Math.round(delay/100.0);
+                actions[i] = calculate_action(i, leader);
+                prev_action[i] = actions[i];
+        }
 
-                  System.out.println("server < pole["+i+"]: "+angle+"  "+angleDot+"  "+pos+"  "+posDot);
-                  actions[i] = calculate_action(angle, angleDot, pos, posDot, i, cart_pos, leader);
-                }
                 //send message out
                 sendMessage_doubleArray(actions);
 
@@ -173,48 +184,82 @@ class PoleServer_handler implements Runnable {
     // TODO: Current implementation assumes that each pole is controlled
     // independently. The interface needs to be changed if the control of one
     // pendulum needs sensing data from other pendulums.
-    double calculate_action(double angle, double angleDot, double pos, double posDot, int cart, double[] cart_pos, int leader) {
-    double action =  10 / (80 * .0175) * angle + angleDot + posDot;
-	double followers_target = 0;
-	double offset_from_leader = 1;
+    double calculate_action(int cart, int leader) {
+        double followers_target = 0;
+        double dist_targ = Math.abs(cart_pos[leader] - targetPos); // Only cart 0 gets a dist_targ
+    	
+    	if (NUM_POLES == 2) {
+			followers_target = Math.abs( cart_pos[leader] - cart_pos[1-leader] ) - offset_from_leader;		
+    	}
 
-	if (NUM_POLES == 2) {
-			followers_target = Math.abs( cart_pos[leader] - cart_pos[1-leader] ) - offset_from_leader;
-			
-	}
-	double dist_targ = Math.abs(cart_pos[leader] - targetPos); // Only cart 0 gets a dist_targ
-	
-	// Leader only drives to map target
-	if (cart == leader) {
-		if (dist_targ > .1) {
-			if (targetPos < pos) { // Target is to left
-			action += .5;
-			} else { // Target is to right
-			action -= .5;
-		}
-		} else {
-			action += dist_targ;
-		} 
-	}//END OF LEADER heading to target
-	
-	if (NUM_POLES == 2) {
-		if (cart != leader) {
-			if (followers_target > .1) {  //Far from target
-				if ( (cart_pos[leader]+offset_from_leader) < pos) { // Target is left, go left
-					action += .5;
-				} else { // Target is right, go right
-					action -= .5;
-				}
-				
-			} else { //Close to target
-					action += followers_target;
+        /****************************
+         ** Make SIMULATED PENDULUM *
+        *****************************/
+        Pendulum future_pend = new Pendulum(NUM_POLES+1, pos);
+        future_pend.update_angle(angle);
+        future_pend.update_angleDot(angleDot);
+        future_pend.update_posDot(posDot);
+        future_pend.update_action(prev_action[cart]);
+        /***************************************
+        *** Loop (time_unit) times using phys **
+        ****************************************/
+        for (int i = 0;i < time_unit; i++) {
+            physics_prog.update_pendulum(future_pend);
+            double temp_action =  10 / (80 * .0175) * future_pend.get_angle() + future_pend.get_angleDot() + future_pend.get_posDot();
+            temp_action = apply_bump(temp_action, cart, leader, followers_target, dist_targ);
+            future_pend.update_action(temp_action);
+        }
+        
+        
+        angle = future_pend.get_angle();
+        angleDot = future_pend.get_angleDot();
+        pos = future_pend.get_pos();
+        posDot = future_pend.get_posDot();
+        
 
-			}
-
-		}
-	} 
-       	return action;
+        double action =  10 / (80 * .0175) * angle + angleDot + posDot;
+        action = apply_bump(action, cart, leader, followers_target, dist_targ);
+       	
+        return action;
    }
+
+
+
+double apply_bump(double action,int cart,int leader, double followers_target, double dist_targ) {
+     double bump = .2;	
+    	// Leader only drives to map target
+    	if (cart == leader) {
+    		if (dist_targ > .1) {
+    			if (targetPos < pos) { // Target is to left
+    			action += bump;
+    			} else { // Target is to right
+    			action -= bump;
+    		}
+    		} else {
+    			action += dist_targ;
+    		} 
+    	}//END OF LEADER heading to target
+    	
+    	if (NUM_POLES == 2) {
+    		if (cart != leader) {
+    			if (followers_target > .1) {  //Far from target
+    				if ( (cart_pos[leader]+offset_from_leader) < pos) { // Target is left, go left
+    					action += bump;
+    				} else { // Target is right, go right
+    					action -= bump;
+    				}
+    				
+    			} else { //Close to target
+    					action += followers_target;
+    
+    			}
+    
+    		}
+    	} 
+    return action;
+    }
+
+
 
     /**
      * This method sends the Double message on the object output stream.

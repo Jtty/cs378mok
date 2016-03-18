@@ -1,5 +1,5 @@
 /*
-<Applet Code="Client.class" fps=10 width=600 height=800> </Applet>
+<Applet Code="Client.class" fps=30 width=600 height=800> </Applet>
  */
 import java.applet.*;
 import java.awt.*;
@@ -69,7 +69,7 @@ public class Client extends Applet {
         configInfo[1] = sb.toString();
         // -------------------------------------
 
-
+        
         physics = new Physics(tau_sim, tau_sim / simSpeed);
         try {
             requestSocket = new Socket("localhost", 25533);
@@ -92,15 +92,16 @@ public class Client extends Applet {
         }
         physicsThread.start();
 
-        if (sensorThread == null) {
-            sensorThread = new Thread(new Sensor(physics, out, triggerType, threshold, sensorSamplingPeriod_sim, sensorSamplingPeriod_phy));
-        }
-        sensorThread.start();
-
-        if (actuatorThread == null) {
-            actuatorThread = new Thread(new Actuator(physics, in));
+        Actuator actuator = new Actuator(physics, in);
+        if (actuatorThread == null) {   
+            actuatorThread = new Thread(actuator);
         }
         actuatorThread.start();
+        
+        if (sensorThread == null) {
+            sensorThread = new Thread(new Sensor(physics, out, triggerType, threshold, sensorSamplingPeriod_sim, sensorSamplingPeriod_phy, actuator));
+        }
+        sensorThread.start();
 
         animator = new UpdatingUIThread(this, physics, (int) (1000 / fps), configInfo);
         if (updatingUIThread == null) {

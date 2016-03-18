@@ -10,7 +10,8 @@ enum TriggerType {
 }
 
 class Sensor implements Runnable {
-
+    
+    Actuator actuator;
     Physics physics;
     private ObjectOutputStream out;
     private double samplingPeriod_phy;  // delay in physical time (in second)
@@ -19,7 +20,8 @@ class Sensor implements Runnable {
     private TriggerType triggerType;
     private double threshold;      // only applicable in event based sensor (in degrees)
 
-    Sensor(Physics phy, ObjectOutputStream out, TriggerType type, double threshold, double sensorSamplingPeriod_sim, double sensorSamplingPeriod_phy) {
+    Sensor(Physics phy, ObjectOutputStream out, TriggerType type, double threshold, double sensorSamplingPeriod_sim, double sensorSamplingPeriod_phy, Actuator actuator) {
+        this.actuator = actuator;
         this.physics = phy;
         this.out = out;
         this.triggerType = type;
@@ -35,7 +37,8 @@ class Sensor implements Runnable {
         while (true) {
             // Sensor will get four data from each pendulum
             // {angle, angleDot, pos, posDot}
-            double sensorData[] = new double[4 * physics.NUM_POLES];
+            //double sensorData[] = new double[5 * physics.NUM_POLES];
+            double sensorData[] = new double[12];
             Pendulum[] pendulums = physics.get_pendulums();
 
             for (int i = 0; i < pendulums.length; i++) {
@@ -61,12 +64,12 @@ class Sensor implements Runnable {
                    sensorData[i*4+1] = angleDot;
                    sensorData[i*4+2] = pos;
                    sensorData[i*4+3] = posDot;
+                   sensorData[11] = (double)(actuator.getDelay()/1000000);
                 }
             }
 
             sendMessage_doubleArray(sensorData);
             System.out.println("---------------");
-            
             try {
                 Thread.sleep(samplingPeriod_phy_ms);
             } catch (Exception e) {

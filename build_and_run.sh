@@ -26,6 +26,7 @@ fi
 echo "Restarting Server"
 java ControlServer &
 
+
 # Start appletviewer
 echo "Launching client applet"
 appletviewer Client.java
