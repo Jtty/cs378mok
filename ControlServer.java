@@ -73,7 +73,8 @@ class PoleServer_handler implements Runnable {
     Physics physics_prog = new Physics(.01, .01/.1);
     double[] prev_action = new double[NUM_POLES];
     double[] cart_pos = new double[NUM_POLES];
-    double offset_from_leader = 1; //Pad distance follower <-> leader
+    double offset_from_leader = 1.3; //Pad distance follower <-> leader
+    double target_pad = .1; // Defines when cart is 'at target'
 
     /**
      * This method receives the pole positions and calculates the updated value
@@ -226,23 +227,23 @@ class PoleServer_handler implements Runnable {
 
 
 double apply_bump(double action,int cart,int leader, double followers_target, double dist_targ) {
-     double bump = .2;	
-    	// Leader only drives to map target
+    double bump = .2;
+        	// Leader only drives to map target
     	if (cart == leader) {
-    		if (dist_targ > .1) {
+    		if (dist_targ > target_pad) {
     			if (targetPos < pos) { // Target is to left
     			action += bump;
     			} else { // Target is to right
     			action -= bump;
     		}
     		} else {
-    			action += dist_targ;
+    			action += (dist_targ/2);
     		} 
     	}//END OF LEADER heading to target
     	
     	if (NUM_POLES == 2) {
     		if (cart != leader) {
-    			if (followers_target > .1) {  //Far from target
+    			if (followers_target > target_pad) {  //Far from target
     				if ( (cart_pos[leader]+offset_from_leader) < pos) { // Target is left, go left
     					action += bump;
     				} else { // Target is right, go right
@@ -250,7 +251,7 @@ double apply_bump(double action,int cart,int leader, double followers_target, do
     				}
     				
     			} else { //Close to target
-    					action += followers_target;
+    					action += (followers_target/2);
     
     			}
     
