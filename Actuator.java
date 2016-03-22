@@ -38,7 +38,7 @@ class Actuator implements Runnable {
               // read action data from control server  
               Object obj = in.readObject();
               double[] data = (double[]) (obj);
-              System.out.println("Data[0]: " + data[0]);
+              //System.out.println("Data[0]: " + data[0]);
               long delay_test = System.nanoTime() - time_old;
               if (delay_test < upper_bound &&
                   delay_test > lower_bound) {    

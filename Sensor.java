@@ -69,7 +69,7 @@ class Sensor implements Runnable {
             }
 
             sendMessage_doubleArray(sensorData);
-            System.out.println("---------------");
+            //System.out.println("---------------");
             try {
                 Thread.sleep(samplingPeriod_phy_ms);
             } catch (Exception e) {

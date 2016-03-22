@@ -73,9 +73,10 @@ class PoleServer_handler implements Runnable {
     Physics physics_prog = new Physics(.01, .01/.1);
     double[] prev_action = new double[NUM_POLES];
     double[] cart_pos = new double[NUM_POLES];
-    double offset_from_leader = 1.3; //Pad distance follower <-> leader
-    double target_pad = .1; // Defines when cart is 'at target'
-
+    double offset_from_leader = 1; //Pad distance follower <-> leader
+    double target_pad = .05; // Defines when cart is 'at target'
+    int hold_pos[] = {0,0}; // If unstable, this is set to N frames to hold position to attempt to save cart
+    double prevAction[] = {0,0};
     /**
      * This method receives the pole positions and calculates the updated value
      * and sends them across to the client.
@@ -110,7 +111,8 @@ class PoleServer_handler implements Runnable {
                 // pendulums.
 				boolean leader_not_elected = true;
 		int leader = 0;
-		delay = data[11]/2;
+		delay = data[11]/2; // Unpack delay from client message
+        
         for (int i = 0; i < NUM_POLES; i++) {
                   if (prev_action[i] == 0) {
                     prev_action[i] = .75;
@@ -119,6 +121,7 @@ class PoleServer_handler implements Runnable {
                   angleDot = data[i*4+1];
                   pos = data[i*4+2];
                   posDot = data[i*4+3];
+
 		  if (leader_not_elected && NUM_POLES == 2) {
 			//Leader is cart closer to target
 			cart_pos[0] = data[1]; //Populate location of cart 0
@@ -130,10 +133,14 @@ class PoleServer_handler implements Runnable {
 				leader = 1;
 			}
 			leader_not_elected = false;
-		  }
+		  } 
+        // ******************************    
+        // Leader will be elected by here
+        // ******************************
 		  
 		  cart_pos[i] = pos;
-                System.out.println("server < pole["+i+"]: "+angle+"  "+angleDot+"  "+pos+"  "+posDot);
+                //String.format("%c[%d;%df",escCode,row,column)
+                System.out.println(String.format("%c[%d;%df server < pole[%d]:\tangle: %.4f\tangleDot: %.4f\tpos: %.4f\tposDot: %.4f\tdelay: %f", 0x1b, i+20, 0, i, angle, angleDot, pos, posDot, delay));
                 time_unit = Math.round(delay/100.0);
                 actions[i] = calculate_action(i, leader);
                 prev_action[i] = actions[i];
@@ -188,11 +195,80 @@ class PoleServer_handler implements Runnable {
     double calculate_action(int cart, int leader) {
         double followers_target = 0;
         double dist_targ = Math.abs(cart_pos[leader] - targetPos); // Only cart 0 gets a dist_targ
-    	
+        
+        /*******************************
+        *** MOVE FORWARD OPTIMIZATION **
+        *******************************/
+        if ( (  (cart == leader && dist_targ > .8) || //Leader check
+                (cart != leader && followers_target > .8) ) && //Follower check 
+            prevAction[cart] != 0 &&
+            angle > .02 &&
+            angle < .05 &&
+            angleDot >= 0 &&
+            angleDot < .02 &&
+            posDot > .02) {
+            System.out.println( String.format("%c[%d;%dfSPECIAL CONDITION: Pendulum in optimum angle for forward. Cart %2d is holding its action!", 0x1B, 34, 0, cart) );
+
+            double temp = prevAction[cart];
+            prevAction[cart] = 0;
+            return temp;
+        }
+        /***************************************
+        ** LAGGY TARGET LOCATION OPTIMIZATION **
+        ****************************************/
+        if ( leader == cart &&
+             dist_targ < target_pad ) {
+            dist_targ = 0; //Set to current spot
+            hold_pos[0] = 10; //Give 10 frames to localize to new spot
+        }
+                
+
     	if (NUM_POLES == 2) {
 			followers_target = Math.abs( cart_pos[leader] - cart_pos[1-leader] ) - offset_from_leader;		
     	}
 
+         
+        //if follower or leader is not stable set target to current pos
+        if (angleDot > 1 ||
+            followers_target < target_pad) {
+                        //Follower must always wait if any cart is unstable
+            hold_pos[1] = 7;
+            followers_target = 0;
+            if (cart == leader) {            // Leader is unstable
+                hold_pos[0] = 7;
+                dist_targ = 0;
+            }
+            System.out.print( String.format("%c[%d;%dfSPECIAL CONDITION: angleDot greater than 1 setting hold_pos. \n    Holding follow for %d frames\n    Holding lead for %d frames\n", 0x1B, 30, 0, hold_pos[1], hold_pos[0]) );
+
+        }
+
+        // Allow cart to stabilize for a few frames before trying to move again
+        if ( (hold_pos[0] + hold_pos[1]) > 0) {
+            if (cart != leader &&
+                hold_pos[1] > 0) {
+                followers_target = pos+.1;
+                if ( angleDot < 2 ) { // If angleDot is in safe limits
+                    hold_pos[1]--;
+                    System.out.print( String.format("%c[%d;%df%2d", 0x1B, 31, 23, hold_pos[1]) );
+                    System.out.print( String.format("%c[%d;%df                                ", 0x1B, 31, 40, hold_pos[1]) );
+                    System.out.print( String.format("%c[%d;%df", 0x1B, 38, 0) ); //Move cursor away from display
+                } else {
+                    System.out.print( String.format("%c[%d;%df angleDot > 1, Increasing wait", 0x1B, 31, 40, hold_pos[1]) );
+                    hold_pos[1]+=2;
+                    System.out.print( String.format("%c[%d;%df", 0x1B, 38, 0) ); //Move cursor away from display
+                }
+
+
+            } 
+            if (hold_pos[0] > 0) { // Leader only holds position if it is unstable.
+                dist_targ /= 2;
+                hold_pos[0]--;
+                System.out.print( String.format("%c[%d;%df%2d", 0x1B, 32, 21, hold_pos[0]) );
+                System.out.print( String.format("%c[%d;%df", 0x1B, 38,0) ); //Move cursor away from display
+            }
+            
+        }
+        
         /****************************
          ** Make SIMULATED PENDULUM *
         *****************************/
@@ -219,25 +295,41 @@ class PoleServer_handler implements Runnable {
         
 
         double action =  10 / (80 * .0175) * angle + angleDot + posDot;
-        action = apply_bump(action, cart, leader, followers_target, dist_targ);
-       	
+        if (hold_pos[0] == 0 && cart == leader) {
+            action = apply_bump(action, cart, leader, followers_target, dist_targ);
+       	}
+        if (hold_pos[1] == 0 && cart != leader) {
+            
+            action = apply_bump(action, cart, leader, followers_target, dist_targ);
+        }
+        prevAction[cart] = action;
+        
+        if (cart == leader) {
+            System.out.print( String.format("%c[%d;%df Leader doing action: %5f", 0x1B, 35, 0, action) );
+        } else {
+            if (action > 1) 
+                action = 1;
+            System.out.print( String.format("%c[%d;%df Follower doing action: %5f", 0x1B, 36, 0, action) );
+        }
+        System.out.print( String.format("%c[%d;%df", 0x1B, 40, 0) ); //move cursor away
         return action;
    }
 
 
 
 double apply_bump(double action,int cart,int leader, double followers_target, double dist_targ) {
-    double bump = .2;
-        	// Leader only drives to map target
+    double bump = .8;
+        // Leader only drives to map target
     	if (cart == leader) {
-    		if (dist_targ > target_pad) {
+    		if (dist_targ > target_pad) { // Far from target
     			if (targetPos < pos) { // Target is to left
     			action += bump;
     			} else { // Target is to right
     			action -= bump;
     		}
-    		} else {
-    			action += (dist_targ/2);
+    		} else { // Close to target
+    			//action += (dist_targ/action_scale);
+                action += dist_targ;
     		} 
     	}//END OF LEADER heading to target
     	
@@ -251,7 +343,8 @@ double apply_bump(double action,int cart,int leader, double followers_target, do
     				}
     				
     			} else { //Close to target
-    					action += (followers_target/2);
+    					//action += (followers_target/action_scale);
+                    action += (followers_target/2);
     
     			}
     

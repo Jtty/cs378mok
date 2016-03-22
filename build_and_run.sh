@@ -21,7 +21,7 @@ then
     exit 1
 fi
 
-
+clear
 # Restart server
 echo "Restarting Server"
 java ControlServer &
@@ -29,4 +29,4 @@ java ControlServer &
 
 # Start appletviewer
 echo "Launching client applet"
-appletviewer Client.java
+appletviewer Client.java &> /dev/null
