@@ -64,6 +64,9 @@ class PoleServer_handler implements Runnable {
         }
         t.start();
     }
+    /******************
+    ** CLASS MEMBERS **
+    *******************/
     double angle, angleDot, posDot, action = 0;
     double i = 0;
     double pos = 0;
@@ -74,13 +77,14 @@ class PoleServer_handler implements Runnable {
     double[] prev_action = new double[NUM_POLES];
     double[] cart_pos = new double[NUM_POLES];
     double offset_from_leader = 1; //Pad distance follower <-> leader
-    double target_pad = .05; // Defines when cart is 'at target'
+    double target_pad = .2; // Defines when cart is 'at target'
     int hold_pos[] = {0,0}; // If unstable, this is set to N frames to hold position to attempt to save cart
     double prevAction[] = {0,0};        // Previous actions taken by carts { 0, 1 }
     double leaderPos[] = {0,0,0,0,0};   // Leader position array
     int leaderPosPtr = 0;               // Ptr for filling the leader position array
     double leaderPosAvg = 0;            // 5 frame average of leaders Position
-    int leader = 0;                  // Which cart is in the lead
+    int leader = 0;                     // Which cart is in the lead
+    boolean leader_not_elected = true;  // Flag used to ensure leader is only elected once
 
     /**
      * This method receives the pole positions and calculates the updated value
@@ -114,9 +118,7 @@ class PoleServer_handler implements Runnable {
                 // controlled independently. This part needs to be changed if
                 // the control of one pendulum needs sensing data from other
                 // pendulums.
-				boolean leader_not_elected = true;
-		int leader = 0;
-		delay = data[11]/2; // Unpack delay from client message
+				delay = data[11]/2; // Unpack delay from client message
                 for (int i = 0; i < NUM_POLES; i++) {
                   if (prev_action[i] == 0) {
                     prev_action[i] = .75;
@@ -125,34 +127,37 @@ class PoleServer_handler implements Runnable {
                   angleDot = data[i*4+1];
                   pos = data[i*4+2];
                   posDot = data[i*4+3];
-
-		  if (leader_not_elected && NUM_POLES == 2) {
-			//Leader is cart closer to target
-			cart_pos[0] = data[1]; //Populate location of cart 0
-			cart_pos[1] = data[5]; //Populate location of cart 1
+                  //LEADER ELECTION 
+        		  if (leader_not_elected && NUM_POLES == 2) {
+		          //Leader is cart closer to target
+			      cart_pos[0] = data[1]; //Populate location of cart 0
+			      cart_pos[1] = data[5]; //Populate location of cart 1
 			
-			if (targetPos < cart_pos[0]) {
-				leader = 0;
-			} else {
-				leader = 1;
-			}
-			leader_not_elected = false;
-		  } 
-        // ******************************    
-        // Leader will be elected by here
-        // ******************************
-            //Init the leaderPos array
-		    for (int j = 0; j < leaderPos.length && (i == leader); j++) {
-                if (leaderPos[j] == 0) {
-                    leaderPos[j] = pos;
-                }   
-            }
-            if (i == leader) {
-                leaderPos[leaderPosPtr%5] = pos;
-                leaderPosPtr++;
-            }
-		  cart_pos[i] = pos;
-                //String.format("%c[%d;%df",escCode,row,column)
+			        if (targetPos < cart_pos[0]) {
+				        leader = 0;
+        			} else {
+		        		leader = 1;
+			        }
+			        leader_not_elected = false;
+		          } //END LEADER ELECTION
+                  // ******************************    
+                  // Leader will be elected by here
+                  // ******************************
+                  //Init the leaderPos array
+		          for (int j = 0; j < leaderPos.length && (i == leader); j++) {
+                    if (leaderPos[j] == 0) {
+                        leaderPos[j] = pos;
+                    }   
+                  }
+                  if (i == leader) {
+                    leaderPos[leaderPosPtr%5] = pos;
+                    if (leaderPosPtr == 5) {// PosPtr:Idx 0:0 1:1 2:2 3:3 4:4 5:0 1:1 ...
+                       leaderPosPtr = 1; 
+                    } else {
+                       leaderPosPtr++;
+                    }
+                  }
+		        cart_pos[i] = pos;
                 System.out.println(String.format("%c[%d;%df server < pole[%d]:\tangle: %.4f\tangleDot: %.4f\tpos: %.4f\tposDot: %.4f\tdelay: %f", 0x1b, i+20, 0, i, angle, angleDot, pos, posDot, delay));
                 time_unit = Math.round(delay/50.0);
                 actions[i] = calculate_action(i, leader);
@@ -291,7 +296,7 @@ class PoleServer_handler implements Runnable {
         
         if (NUM_POLES == 2) {
             followers_target = Math.abs( leaderPosAvg - cart_pos[1-leader] ) - offset_from_leader;
-            System.out.print( String.format("%c[%d;%dfLeaders Average Position: %4f", 0x1B, 15, 0, leaderPosAvg) );
+            System.out.print( String.format("%c[%d;%dfLeaders Average Position: %4f\t0: %4f\t1: %4f\t2: %4f\t3: %4f\t4: %4f", 0x1B, 15, 0, leaderPosAvg, leaderPos[0], leaderPos[1], leaderPos[2], leaderPos[3], leaderPos[4]) );
     	    moveCursor();
         }
 
@@ -313,10 +318,10 @@ class PoleServer_handler implements Runnable {
              dist_targ < target_pad ) {
             dist_targ = 0; //Set to current avg spot
             hold_pos[0] = 10; //Give 10 frames to localize to new spot
-        }// else if (leader != cart && followers_target < target_pad) {
-         //   followers_target = 0;
-         //   hold_pos[1] = 10;
-        //}
+        } else if (leader != cart && followers_target < target_pad) {
+            followers_target = 0;
+            hold_pos[1] = 10;
+        }
          
         //if follower or leader is not stable set target to current pos
         if (angleDot > 1) {
@@ -336,7 +341,8 @@ class PoleServer_handler implements Runnable {
             // FOLLOWER HOLDS POSITION IF THERE ARE ANY UNSTABLE CARTS
             if (cart != leader &&
                 hold_pos[1] > 0) {
-                followers_target /= 4;
+                //followers_target /= 2;
+                followers_target = 0;
                 if ( angleDot < 2 ) { // If angleDot is in safe limits
                     hold_pos[1]--;
                     System.out.print( String.format("%c[%d;%df%2d", 0x1B, 31, 23, hold_pos[1]) );
@@ -350,7 +356,6 @@ class PoleServer_handler implements Runnable {
             }
             //LEADER HOLDS POSITION IF IT IS UNSTABLE
             if (hold_pos[0] > 0) {
-                dist_targ /= 4;
                 dist_targ = 0;
                 hold_pos[0]--;
                 System.out.print( String.format("%c[%d;%df%2d", 0x1B, 32, 21, hold_pos[0]) );
@@ -361,19 +366,9 @@ class PoleServer_handler implements Runnable {
         
         // DO PHYSICS PROJECTION
         double projected[] = doProjection(pos, angle, angleDot, posDot, cart, followers_target, dist_targ);
-        action = 10 / (80 * .0175) * projected[0] + projected[1] + projected[3];
-        //double action =  10 / (80 * .0175) * angle + angleDot + posDot;
+        action = 10 / (80 * .0175) * projected[0] + projected[1] + projected[3]; // ANGLE, ANGLEDOT, POSDOT
 
-        /********************************
-        *** ONLY APPLY BUMP IF STABLE ***
-        *********************************/        
-        if (hold_pos[0] == 0 && cart == leader) {
-            action = apply_bump(action, cart, leader, followers_target, dist_targ);
-       	}
-        if (hold_pos[1] == 0 && cart != leader) {
-            
-            action = apply_bump(action, cart, leader, followers_target, dist_targ);
-        }
+        action = apply_bump(action, cart, leader, followers_target, dist_targ);
         prevAction[cart] = action;
         
         if (cart == leader) {
@@ -381,7 +376,7 @@ class PoleServer_handler implements Runnable {
         } else {
             System.out.print( String.format("%c[%d;%df Follower doing action: %5f", 0x1B, 36, 0, action) );
         }
-        System.out.print( String.format("%c[%d;%df", 0x1B, 40, 0) ); //move cursor away
+        moveCursor();
         return action;
    }
 
@@ -389,6 +384,11 @@ class PoleServer_handler implements Runnable {
 
 double apply_bump(double action,int cart,int leader, double followers_target, double dist_targ) {
     double bump = .3;
+    //ONLY APPLY BUMP IF STABLE
+    if ( (cart == leader && hold_pos[0] > 0) ||
+         (cart != leader && hold_pos[1] > 0) ) {
+        return action;
+    }
         // Leader only drives to map target
     	if (cart == leader) {
     		if (dist_targ > target_pad) { // Far from target
@@ -398,7 +398,6 @@ double apply_bump(double action,int cart,int leader, double followers_target, do
     			action -= bump;
     		}
     		} else { // Close to target
-    			//action += (dist_targ/action_scale);
                 action += dist_targ;
     		} 
     	}//END OF LEADER heading to target
@@ -413,7 +412,6 @@ double apply_bump(double action,int cart,int leader, double followers_target, do
     				}
     				
     			} else { //Close to target
-    					//action += (followers_target/action_scale);
                     action += followers_target;
     
     			}
