@@ -76,9 +76,11 @@ class PoleServer_handler implements Runnable {
     double offset_from_leader = 1; //Pad distance follower <-> leader
     double target_pad = .05; // Defines when cart is 'at target'
     int hold_pos[] = {0,0}; // If unstable, this is set to N frames to hold position to attempt to save cart
-    double prevAction[] = {0,0};
-    double leaderPos[] = {0,0,0,0,0};
-    int leaderPosPtr = 0;
+    double prevAction[] = {0,0};        // Previous actions taken by carts { 0, 1 }
+    double leaderPos[] = {0,0,0,0,0};   // Leader position array
+    int leaderPosPtr = 0;               // Ptr for filling the leader position array
+    double leaderPosAvg = 0;            // 5 frame average of leaders Position
+    int leader = 0;                  // Which cart is in the lead
 
     /**
      * This method receives the pole positions and calculates the updated value
@@ -198,30 +200,36 @@ class PoleServer_handler implements Runnable {
 
     }
 
-    // Calculate the actions to be applied to the inverted pendulum from the
-    // sensing data.
-    // TODO: Current implementation assumes that each pole is controlled
-    // independently. The interface needs to be changed if the control of one
-    // pendulum needs sensing data from other pendulums.
-    double calculate_action(int cart, int leader) {
-        double followers_target = 0;
-        double dist_targ = Math.abs(cart_pos[leader] - targetPos); // Only cart 0 gets a dist_targ
-        if (NUM_POLES == 2) {
-			double leaderPosAvg = 0;
-            for (int i = 0; i < leaderPos.length; i++)
-                leaderPosAvg+=leaderPos[i];
-            leaderPosAvg/=5;
+    
+    /**
+     * This method will average a double array.
+     *
+     */
+    private double avgDoubleArray(double[] arrayIn) {
+        double arrayAvg = 0;
+        for (int i=0; i < arrayIn.length; i++)
+            arrayAvg+=arrayIn[i];
+        return arrayAvg/arrayIn.length;   
+    }
 
-            //followers_target = Math.abs( cart_pos[leader] - cart_pos[1-leader] ) - offset_from_leader;		
-            followers_target = Math.abs( leaderPosAvg - cart_pos[1-leader] ) - offset_from_leader;
-            System.out.print( String.format("%c[%d;%dfLeaders Average Position: %4f   0: %4f  1: %4f  2:  %4f  3: %4f  4: %4f", 0x1B, 15, 0, leaderPosAvg, leaderPos[0], leaderPos[1], leaderPos[2], leaderPos[3], leaderPos[4]) );
-            System.out.print( String.format("%c[%d;%df", 0x1B, 40, 0) );
-    	}
 
-        /*******************************
-        *** MOVE FORWARD OPTIMIZATION **
-        *******************************/
-        if ( (  (cart == leader && dist_targ > .8) || //Leader check
+    /**
+    * This method will redirect cursor location in VT-100 compatible terminals.
+    * Used to make ControlServer output readable.
+    */
+    private void moveCursor() {
+        System.out.print( String.format("%c[%d;%df", 0x1B, 40, 0) );
+        return;
+    }
+
+    
+    /**
+    * This method checks various conditions to determine if its safe to for a forward movement optimization
+    *
+    */
+    private boolean fwdOptimization(double dist_targ, double followers_target, int cart, int leader) {
+        if (delay <= 71 &&      // Runs away too fast for greater latency 
+            (  (cart == leader && dist_targ > .8) || //Leader check
                 (cart != leader && followers_target > .8) ) && //Follower check 
             prevAction[cart] != 0 &&
             angle > .005 &&
@@ -229,27 +237,89 @@ class PoleServer_handler implements Runnable {
             angleDot >= 0 &&
             angleDot < .02 &&
             posDot > .02) {
-            System.out.println( String.format("%c[%d;%dfSPECIAL CONDITION: Pendulum in optimum angle for forward. Cart %2d is holding its action!", 0x1B, 34, 0, cart) );
+            return true;
+        }
+        return false;
+    }
 
+
+    /**
+    * This method does cart projection using a local instantiation of the Physics class
+    *
+    */
+    private double[] doProjection(double pos, double angle, double angleDot, double posDot, int cart, double followers_target, double dist_targ) {
+        double result[] = {0,0,0,0}; //ANGLE, ANGLEDOT, POS, POSDOT
+        
+        // INSTANTIATE SIMULATED PENDULUM 
+        Pendulum future_pend = new Pendulum(NUM_POLES+1, pos);
+        future_pend.update_angle(angle);
+        future_pend.update_angleDot(angleDot);
+        future_pend.update_posDot(posDot);
+        future_pend.update_action(prevAction[cart]);
+        
+        // LOOP (TIME_UNIT) TIMES THROUGH PHYSICS
+        System.out.print( String.format("%c[%d;%dfProjecting %d frames into future.", 0x1B, 28, 0, time_unit) );
+        moveCursor();
+
+        for (int i = 0;i < time_unit; i++) {
+            physics_prog.update_pendulum(future_pend);
+            double temp_action =  10 / (80 * .0175) * future_pend.get_angle() + future_pend.get_angleDot() + future_pend.get_posDot();
+            temp_action = apply_bump(temp_action, cart, leader, followers_target, dist_targ);
+            future_pend.update_action(temp_action);
+        }
+            
+        // PACK RESULTS FOR RETURN
+        result[0] = future_pend.get_angle();    //ANGLE
+        result[1] = future_pend.get_angleDot(); //ANGLEDOT
+        result[2] = future_pend.get_pos();      //POS
+        result[3] = future_pend.get_posDot();   //POSDOT
+
+        return result;
+    }
+
+    // Calculate the actions to be applied to the inverted pendulum from the
+    // sensing data.
+    // TODO: Current implementation assumes that each pole is controlled
+    // independently. The interface needs to be changed if the control of one
+    // pendulum needs sensing data from other pendulums.
+    double calculate_action(int cart, int leader) {
+        // Set local varaiables
+        double followers_target = 0;
+        leaderPosAvg = avgDoubleArray(leaderPos);
+        double dist_targ = Math.abs(leaderPosAvg - targetPos);
+        double action = 0;
+        
+        if (NUM_POLES == 2) {
+            followers_target = Math.abs( leaderPosAvg - cart_pos[1-leader] ) - offset_from_leader;
+            System.out.print( String.format("%c[%d;%dfLeaders Average Position: %4f", 0x1B, 15, 0, leaderPosAvg) );
+    	    moveCursor();
+        }
+
+        //If conditions are correct skip calculating an action and repeat last action for speed
+        if (fwdOptimization(dist_targ, followers_target, cart, leader)) {
+            System.out.print( String.format("%c[%d;%dfSPECIAL CONDITION: Pendulum in optimum angle for forward. Cart %2d is holding its action!", 0x1B, 34, 0, cart) );
+            moveCursor();
             double temp = prevAction[cart];
             prevAction[cart] = 0;
             return temp;
+        } else { //Clear alert
+            System.out.print( String.format("%c[%d;%df                                                                                           ", 0x1B, 34, 0) );
         }
+
         /***************************************
         ** LAGGY TARGET LOCATION OPTIMIZATION **
         ****************************************/
         if ( leader == cart &&
              dist_targ < target_pad ) {
-            dist_targ = 0; //Set to current spot
+            dist_targ = 0; //Set to current avg spot
             hold_pos[0] = 10; //Give 10 frames to localize to new spot
-        }
-                
-
-    	
+        }// else if (leader != cart && followers_target < target_pad) {
+         //   followers_target = 0;
+         //   hold_pos[1] = 10;
+        //}
          
         //if follower or leader is not stable set target to current pos
-        if (angleDot > 1 ||
-            followers_target < target_pad) {
+        if (angleDot > 1) {
                         //Follower must always wait if any cart is unstable
             hold_pos[1] = 7;
             followers_target = 0;
@@ -263,59 +333,40 @@ class PoleServer_handler implements Runnable {
 
         // Allow cart to stabilize for a few frames before trying to move again
         if ( (hold_pos[0] + hold_pos[1]) > 0) {
+            // FOLLOWER HOLDS POSITION IF THERE ARE ANY UNSTABLE CARTS
             if (cart != leader &&
                 hold_pos[1] > 0) {
-                followers_target /= 2;
+                followers_target /= 4;
                 if ( angleDot < 2 ) { // If angleDot is in safe limits
                     hold_pos[1]--;
                     System.out.print( String.format("%c[%d;%df%2d", 0x1B, 31, 23, hold_pos[1]) );
                     System.out.print( String.format("%c[%d;%df                                ", 0x1B, 31, 40, hold_pos[1]) );
-                    System.out.print( String.format("%c[%d;%df", 0x1B, 38, 0) ); //Move cursor away from display
+                    moveCursor();
                 } else {
                     System.out.print( String.format("%c[%d;%df angleDot > 1, Increasing wait", 0x1B, 31, 40, hold_pos[1]) );
                     hold_pos[1]+=2;
-                    System.out.print( String.format("%c[%d;%df", 0x1B, 38, 0) ); //Move cursor away from display
+                    moveCursor();
                 }
-
-
-            } 
-            if (hold_pos[0] > 0) { // Leader only holds position if it is unstable.
-                dist_targ /= 2;
+            }
+            //LEADER HOLDS POSITION IF IT IS UNSTABLE
+            if (hold_pos[0] > 0) {
+                dist_targ /= 4;
+                dist_targ = 0;
                 hold_pos[0]--;
                 System.out.print( String.format("%c[%d;%df%2d", 0x1B, 32, 21, hold_pos[0]) );
-                System.out.print( String.format("%c[%d;%df", 0x1B, 38,0) ); //Move cursor away from display
+                moveCursor();
             }
             
         }
         
-        /****************************
-         ** Make SIMULATED PENDULUM *
-        *****************************/
-        Pendulum future_pend = new Pendulum(NUM_POLES+1, pos);
-        future_pend.update_angle(angle);
-        future_pend.update_angleDot(angleDot);
-        future_pend.update_posDot(posDot);
-        future_pend.update_action(prev_action[cart]);
-        /***************************************
-        *** Loop (time_unit) times using phys **
-        ****************************************/
-        System.out.print( String.format("%c[%d;%dfProjecting %d frames into future.", 0x1B, 28, 0, time_unit) );
-        System.out.print( String.format("%c[%d;%df", 0x1B, 40, 0) ); //Move cursor away
-        for (int i = 0;i < time_unit; i++) {
-            physics_prog.update_pendulum(future_pend);
-            double temp_action =  10 / (80 * .0175) * future_pend.get_angle() + future_pend.get_angleDot() + future_pend.get_posDot();
-            temp_action = apply_bump(temp_action, cart, leader, followers_target, dist_targ);
-            future_pend.update_action(temp_action);
-        }
-        
-        
-        angle = future_pend.get_angle();
-        angleDot = future_pend.get_angleDot();
-        pos = future_pend.get_pos();
-        posDot = future_pend.get_posDot();
-        
+        // DO PHYSICS PROJECTION
+        double projected[] = doProjection(pos, angle, angleDot, posDot, cart, followers_target, dist_targ);
+        action = 10 / (80 * .0175) * projected[0] + projected[1] + projected[3];
+        //double action =  10 / (80 * .0175) * angle + angleDot + posDot;
 
-        double action =  10 / (80 * .0175) * angle + angleDot + posDot;
+        /********************************
+        *** ONLY APPLY BUMP IF STABLE ***
+        *********************************/        
         if (hold_pos[0] == 0 && cart == leader) {
             action = apply_bump(action, cart, leader, followers_target, dist_targ);
        	}
@@ -337,7 +388,7 @@ class PoleServer_handler implements Runnable {
 
 
 double apply_bump(double action,int cart,int leader, double followers_target, double dist_targ) {
-    double bump = .5;
+    double bump = .3;
         // Leader only drives to map target
     	if (cart == leader) {
     		if (dist_targ > target_pad) { // Far from target
@@ -363,7 +414,7 @@ double apply_bump(double action,int cart,int leader, double followers_target, do
     				
     			} else { //Close to target
     					//action += (followers_target/action_scale);
-                    action += (followers_target*.8);
+                    action += followers_target;
     
     			}
     
