@@ -33,7 +33,7 @@ class Sensor implements Runnable {
 
 
     public synchronized void run() {
-
+        double frame = 0; //unique ID for each frame
         while (true) {
             // Sensor will get four data from each pendulum
             // {angle, angleDot, pos, posDot}
@@ -64,6 +64,7 @@ class Sensor implements Runnable {
                    sensorData[i*4+1] = angleDot;
                    sensorData[i*4+2] = pos;
                    sensorData[i*4+3] = posDot;
+                   sensorData[10] = frame++;
                    sensorData[11] = (double)(actuator.getDelay()/1000000);
                 }
             }

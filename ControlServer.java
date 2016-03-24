@@ -85,7 +85,7 @@ class PoleServer_handler implements Runnable {
     double leaderPosAvg = 0;            // 5 frame average of leaders Position
     int leader = 0;                     // Which cart is in the lead
     boolean leader_not_elected = true;  // Flag used to ensure leader is only elected once
-
+    int prevFrame[] = {0,0,0,0,0};      // Check if frame has already been processed
     /**
      * This method receives the pole positions and calculates the updated value
      * and sends them across to the client.
@@ -111,7 +111,6 @@ class PoleServer_handler implements Runnable {
                 
                 double[] data= (double[])(obj);
                 double[] actions = new double[NUM_POLES];
- 
                 // Get sensor data of each pole and calculate the action to be
                 // applied to each inverted pendulum
                 // TODO: Current implementation assumes that each pole is
@@ -127,6 +126,9 @@ class PoleServer_handler implements Runnable {
                   angleDot = data[i*4+1];
                   pos = data[i*4+2];
                   posDot = data[i*4+3];
+                  Double frame = new Double(data[10]);
+                  System.out.print( String.format("%c[%d;%dfProcessessing Frame: %d Cart: ", 0x1B, 22+leaderPosPtr, 35, frame.intValue()) );
+                  
                   //LEADER ELECTION 
         		  if (leader_not_elected && NUM_POLES == 2) {
 		          //Leader is cart closer to target
@@ -157,21 +159,31 @@ class PoleServer_handler implements Runnable {
                        leaderPosPtr++;
                     }
                   }
-		        cart_pos[i] = pos;
-                System.out.println(String.format("%c[%d;%df server < pole[%d]:\tangle: %.4f\tangleDot: %.4f\tpos: %.4f\tposDot: %.4f\tdelay: %f", 0x1b, i+20, 0, i, angle, angleDot, pos, posDot, delay));
-                time_unit = Math.round(delay/50.0);
-                actions[i] = calculate_action(i, leader);
-                prev_action[i] = actions[i];
-        }
+                  if (frame.intValue() > 6) { //Wait until prevFrame is filled
+                    for (int j=0; j < 4; j++) {
+                        if (prevFrame[j] == frame.intValue()) {
+                            System.out.print( String.format("%c[%d;%dfERROR FRAME PROCESSED TWICE! Frame# %d", 0x1B, 5, 15, prevFrame[j]) );
+                        }
+                    }
+                  }
+                  prevFrame[leaderPosPtr%5] = frame.intValue();
+
+                  cart_pos[i] = pos;
+                  System.out.print(String.format("%c[%d;%df server < pole[%d]:\tangle: %.4f\tangleDot: %.4f\tpos: %.4f\tposDot: %.4f\tdelay: %f", 0x1b, i+20, 0, i, angle, angleDot, pos, posDot, delay));
+                  time_unit = Math.round(delay/50.0);
+                  actions[i] = calculate_action(i, leader);
+                  prev_action[i] = actions[i];
+                
+                  }//END OF PROCESSESING EACH PENDULUM
 
                 //send message out
+                //System.out.print( String.format("%c[%d;%dfSending Result of FRAME: %d", 0x1B, 23, 50, frame.intValue()) );
                 sendMessage_doubleArray(actions);
 
-            }
+            }//END WHILE CONTROL LOOP
         } catch (Exception ex) {
             ex.printStackTrace();
         }
-
         try {
             if (clientSocket != null) {
                 System.out.println("closing down connection ...");                
@@ -184,10 +196,8 @@ class PoleServer_handler implements Runnable {
         } catch (IOException ioe) {
             System.out.println("unable to disconnect");
         }
-
         System.out.println("Session closed. Waiting for new connection...");
-
-    }
+    } //END CONTROL_PENDULUM()
 
     /**
      * This method calls the controller method to balance the pendulum.
@@ -288,7 +298,7 @@ class PoleServer_handler implements Runnable {
     // independently. The interface needs to be changed if the control of one
     // pendulum needs sensing data from other pendulums.
     double calculate_action(int cart, int leader) {
-        // Set local varaiables
+        // SET NEEDED LOCAL VARIABLES
         double followers_target = 0;
         leaderPosAvg = avgDoubleArray(leaderPos);
         double dist_targ = Math.abs(leaderPosAvg - targetPos);
@@ -310,7 +320,6 @@ class PoleServer_handler implements Runnable {
         } else { //Clear alert
             System.out.print( String.format("%c[%d;%df                                                                                           ", 0x1B, 34, 0) );
         }
-
         /***************************************
         ** LAGGY TARGET LOCATION OPTIMIZATION **
         ****************************************/

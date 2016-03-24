@@ -29,4 +29,4 @@ java ControlServer &
 
 # Start appletviewer
 echo "Launching client applet"
-appletviewer Client.java &> /dev/null
+appletviewer Client.java &> ./client.log

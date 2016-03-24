@@ -33,20 +33,25 @@ class Actuator implements Runnable {
     public synchronized void run() {
         double[] data_old = null;
         long time_old = System.nanoTime();
+        int i = 0;
         while (true) {
             try {
               // read action data from control server  
               Object obj = in.readObject();
               double[] data = (double[]) (obj);
-              //System.out.println("Data[0]: " + data[0]);
+
               long delay_test = System.nanoTime() - time_old;
               if (delay_test < upper_bound &&
                   delay_test > lower_bound) {    
                 delay = delay_test;
+                delay_test /= 1000000;
               }
               time_old = System.nanoTime();
               assert(data.length == physics.NUM_POLES);
-            physics.update_actions(data);
+              //if (delay_test > 150) { //Use if block to skip 'duplicate' packets from the controller. Doesn't fix issue.
+                  System.out.print( String.format("ACTUATOR::Time: %d\tAction: %f\tIter: %d\n", delay_test, data[0], i++) );
+                  physics.update_actions(data);
+              //}
 
             } catch (Exception e) {
                 e.printStackTrace();
