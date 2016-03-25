@@ -86,6 +86,7 @@ class PoleServer_handler implements Runnable {
     int leader = 0;                     // Which cart is in the lead
     boolean leader_not_elected = true;  // Flag used to ensure leader is only elected once
     int prevFrame[] = {0,0,0,0,0};      // Check if frame has already been processed
+    double frame_ref = 0;               // Frame number given to packet by client.java
     /**
      * This method receives the pole positions and calculates the updated value
      * and sends them across to the client.
@@ -117,7 +118,8 @@ class PoleServer_handler implements Runnable {
                 // controlled independently. This part needs to be changed if
                 // the control of one pendulum needs sensing data from other
                 // pendulums.
-				delay = data[11]/2; // Unpack delay from client message
+				frame_ref = data[10];
+                delay = data[11]; // Unpack delay from client message
                 for (int i = 0; i < NUM_POLES; i++) {
                   if (prev_action[i] == 0) {
                     prev_action[i] = .75;
@@ -127,7 +129,7 @@ class PoleServer_handler implements Runnable {
                   pos = data[i*4+2];
                   posDot = data[i*4+3];
                   Double frame = new Double(data[10]);
-                  System.out.print( String.format("%c[%d;%dfProcessessing Frame: %d Cart: ", 0x1B, 22+leaderPosPtr, 35, frame.intValue()) );
+                  //System.out.print( String.format("%c[%d;%dfProcessessing Frame: %d Cart: ", 0x1B, 22+leaderPosPtr, 35, frame.intValue()) );
                   
                   //LEADER ELECTION 
         		  if (leader_not_elected && NUM_POLES == 2) {
@@ -177,7 +179,6 @@ class PoleServer_handler implements Runnable {
                   }//END OF PROCESSESING EACH PENDULUM
 
                 //send message out
-                //System.out.print( String.format("%c[%d;%dfSending Result of FRAME: %d", 0x1B, 23, 50, frame.intValue()) );
                 sendMessage_doubleArray(actions);
 
             }//END WHILE CONTROL LOOP
@@ -243,7 +244,7 @@ class PoleServer_handler implements Runnable {
     *
     */
     private boolean fwdOptimization(double dist_targ, double followers_target, int cart, int leader) {
-        if (delay <= 71 &&      // Runs away too fast for greater latency 
+        if (//delay <= 71 &&      // Runs away too fast for greater latency 
             (  (cart == leader && dist_targ > .8) || //Leader check
                 (cart != leader && followers_target > .8) ) && //Follower check 
             prevAction[cart] != 0 &&
@@ -282,21 +283,16 @@ class PoleServer_handler implements Runnable {
             temp_action = apply_bump(temp_action, cart, leader, followers_target, dist_targ);
             future_pend.update_action(temp_action);
         }
-            
         // PACK RESULTS FOR RETURN
         result[0] = future_pend.get_angle();    //ANGLE
         result[1] = future_pend.get_angleDot(); //ANGLEDOT
         result[2] = future_pend.get_pos();      //POS
         result[3] = future_pend.get_posDot();   //POSDOT
-
         return result;
     }
 
     // Calculate the actions to be applied to the inverted pendulum from the
     // sensing data.
-    // TODO: Current implementation assumes that each pole is controlled
-    // independently. The interface needs to be changed if the control of one
-    // pendulum needs sensing data from other pendulums.
     double calculate_action(int cart, int leader) {
         // SET NEEDED LOCAL VARIABLES
         double followers_target = 0;
@@ -306,7 +302,7 @@ class PoleServer_handler implements Runnable {
         
         if (NUM_POLES == 2) {
             followers_target = Math.abs( leaderPosAvg - cart_pos[1-leader] ) - offset_from_leader;
-            System.out.print( String.format("%c[%d;%dfLeaders Average Position: %4f\t0: %4f\t1: %4f\t2: %4f\t3: %4f\t4: %4f", 0x1B, 15, 0, leaderPosAvg, leaderPos[0], leaderPos[1], leaderPos[2], leaderPos[3], leaderPos[4]) );
+            //System.out.print( String.format("%c[%d;%dfLeaders Average Position: %4f\t0: %4f\t1: %4f\t2: %4f\t3: %4f\t4: %4f", 0x1B, 15, 0, leaderPosAvg, leaderPos[0], leaderPos[1], leaderPos[2], leaderPos[3], leaderPos[4]) );
     	    moveCursor();
         }
 
@@ -331,60 +327,13 @@ class PoleServer_handler implements Runnable {
             followers_target = 0;
             hold_pos[1] = 10;
         }
-         
-        //if follower or leader is not stable set target to current pos
-        if (angleDot > 1) {
-                        //Follower must always wait if any cart is unstable
-            hold_pos[1] = 7;
-            followers_target = 0;
-            if (cart == leader) {            // Leader is unstable
-                hold_pos[0] = 7;
-                dist_targ = 0;
-            }
-            System.out.print( String.format("%c[%d;%dfSPECIAL CONDITION: angleDot greater than 1 setting hold_pos. \n    Holding follow for %d frames\n    Holding lead for %d frames\n", 0x1B, 30, 0, hold_pos[1], hold_pos[0]) );
-
-        }
-
-        // Allow cart to stabilize for a few frames before trying to move again
-        if ( (hold_pos[0] + hold_pos[1]) > 0) {
-            // FOLLOWER HOLDS POSITION IF THERE ARE ANY UNSTABLE CARTS
-            if (cart != leader &&
-                hold_pos[1] > 0) {
-                //followers_target /= 2;
-                followers_target = 0;
-                if ( angleDot < 2 ) { // If angleDot is in safe limits
-                    hold_pos[1]--;
-                    System.out.print( String.format("%c[%d;%df%2d", 0x1B, 31, 23, hold_pos[1]) );
-                    System.out.print( String.format("%c[%d;%df                                ", 0x1B, 31, 40, hold_pos[1]) );
-                    moveCursor();
-                } else {
-                    System.out.print( String.format("%c[%d;%df angleDot > 1, Increasing wait", 0x1B, 31, 40, hold_pos[1]) );
-                    hold_pos[1]+=2;
-                    moveCursor();
-                }
-            }
-            //LEADER HOLDS POSITION IF IT IS UNSTABLE
-            if (hold_pos[0] > 0) {
-                dist_targ = 0;
-                hold_pos[0]--;
-                System.out.print( String.format("%c[%d;%df%2d", 0x1B, 32, 21, hold_pos[0]) );
-                moveCursor();
-            }
-            
-        }
-        
+       
         // DO PHYSICS PROJECTION
         double projected[] = doProjection(pos, angle, angleDot, posDot, cart, followers_target, dist_targ);
         action = 10 / (80 * .0175) * projected[0] + projected[1] + projected[3]; // ANGLE, ANGLEDOT, POSDOT
-
+        //action = 10/ (80 * .0175) * angle + angleDot + posDot; //No projection calc
         action = apply_bump(action, cart, leader, followers_target, dist_targ);
         prevAction[cart] = action;
-        
-        if (cart == leader) {
-            System.out.print( String.format("%c[%d;%df Leader doing action: %5f", 0x1B, 35, 0, action) );
-        } else {
-            System.out.print( String.format("%c[%d;%df Follower doing action: %5f", 0x1B, 36, 0, action) );
-        }
         moveCursor();
         return action;
    }
@@ -392,7 +341,7 @@ class PoleServer_handler implements Runnable {
 
 
 double apply_bump(double action,int cart,int leader, double followers_target, double dist_targ) {
-    double bump = .3;
+    double bump = .5;
     //ONLY APPLY BUMP IF STABLE
     if ( (cart == leader && hold_pos[0] > 0) ||
          (cart != leader && hold_pos[1] > 0) ) {
@@ -405,9 +354,9 @@ double apply_bump(double action,int cart,int leader, double followers_target, do
     			action += bump;
     			} else { // Target is to right
     			action -= bump;
-    		}
+    		    }
     		} else { // Close to target
-                action += dist_targ;
+                    action += dist_targ;
     		} 
     	}//END OF LEADER heading to target
     	
